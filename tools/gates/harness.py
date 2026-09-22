@@ -27,6 +27,7 @@ The rule that follows from it, and the one to enforce in review:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -54,6 +55,43 @@ def repo_root(start: Path | None = None) -> Path:
     # No .git — a tarball, a container build, a vendored copy. Fall back rather than fail, but the
     # caller should treat a surprising root as a reason to check.
     return here.parents[2] if len(here.parents) >= 3 else here.parent
+
+
+def scan_root(start: Path | None = None) -> Path:
+    """The tree a gate should INSPECT, which is not always the tree it lives in.
+
+    WHY THIS IS SEPARATE FROM `repo_root`. A gate answers two different questions with a path:
+    "where is my own configuration" and "what code am I checking". Those are the same directory in
+    the ordinary case — the kit is copied into the repo it guards — and `scan_root` then returns
+    exactly `repo_root`, so a normal install behaves identically and needs no change.
+
+    They are NOT the same when one checkout guards code it does not contain: a workspace that holds
+    the harness once and references sibling repositories, rather than copying the gates into every
+    one of them. Without this split, such a team either installs the kit everywhere or runs the
+    gates against the workspace while the report reads as though it covered the services. The second
+    is a could-not-run wearing a verdict's clothes, which is the failure this harness exists to
+    remove.
+
+    `HARNESS_SCAN_ROOT` names the tree to inspect — absolute, or relative to `repo_root()`. A value
+    that does not resolve to a directory is a hard error and never a silent fallback: a typo that
+    quietly reverted to scanning the gate's own repository would produce a clean report about code
+    nobody looked at, which is worse than no report at all.
+    """
+    configured = os.environ.get("HARNESS_SCAN_ROOT", "").strip()
+    if not configured:
+        return repo_root(start)
+    candidate = Path(configured)
+    if not candidate.is_absolute():
+        candidate = repo_root(start) / candidate
+    candidate = candidate.resolve()
+    if not candidate.is_dir():
+        raise SystemExit(
+            "HARNESS_SCAN_ROOT=" + repr(configured) + " does not resolve to a directory "
+            "(" + str(candidate) + ").\n"
+            "Refusing to fall back to the gate's own repository: a gate that silently scans the\n"
+            "wrong tree reports a verdict about code it never looked at."
+        )
+    return candidate
 
 
 def report(

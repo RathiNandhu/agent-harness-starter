@@ -54,9 +54,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import CANNOT_RUN, VERIFIED, VIOLATED, repo_root, report  # noqa: E402
+from harness import CANNOT_RUN, VERIFIED, VIOLATED, repo_root, report, scan_root  # noqa: E402
 
+# The register lives with the harness (ROOT); the code that cites DEC- ids is in the tree under
+# test (SCAN). One register can therefore serve several scanned repositories.
 ROOT = repo_root()
+SCAN = scan_root()
 
 # ── Tailor these to your project ─────────────────────────────────────────────────────────────────
 REGISTER = Path("docs/DECISIONS.md")
@@ -159,11 +162,11 @@ def scan_citations() -> list[tuple[str, int, str]]:
     hits: list[tuple[str, int, str]] = []
     seen: set[Path] = set()
     for pattern in CITATION_GLOBS:
-        for path in ROOT.glob(pattern):
+        for path in SCAN.glob(pattern):
             if path in seen or not path.is_file():
                 continue
             seen.add(path)
-            rel = path.relative_to(ROOT)
+            rel = path.relative_to(SCAN)
             if set(rel.parts) & EXCLUDE_PARTS or rel == REGISTER:
                 continue
             # as_posix(), not str(): on Windows str(rel) joins with backslashes, so

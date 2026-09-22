@@ -58,11 +58,19 @@ verdict_from_rc() {
 }
 
 run_harness_stage() {
+  local scope="${1:-}"
   local cmd; cmd="$(cfg_get harness.runCommand)"
   if [ -z "$cmd" ]; then
     echo "run-qa-workflow: qa.config.yaml has no harness.runCommand." >&2
     exit 2
   fi
+  # `{ticketId}` is substituted here exactly as it is in e2e.ticketCommand, so a gate command can
+  # scope itself to the change under test. A project whose harness guards SEVERAL repositories
+  # otherwise has to name them in qa.config.yaml, where they are correct for one ticket and wrong
+  # for every other -- and a gate stage aimed at the wrong repository still prints a verdict.
+  # In regression mode there is no ticket; the placeholder resolves to empty and the command is
+  # expected to fall back to its full scope.
+  cmd="${cmd//\{ticketId\}/$scope}"
   local out; out="$(bash -c "$cmd" 2>&1)"; local rc=$?
   HARNESS_VERDICT="$(verdict_from_rc "$rc")"
   HARNESS_EVIDENCE="tools/qa/evidence/latest.md"
@@ -336,7 +344,7 @@ case "$mode" in
   ticket)
     ticket="${2:-}"
     [ -n "$ticket" ] || { echo "usage: run-qa-workflow.sh ticket <TICKET-ID>" >&2; exit 2; }
-    run_harness_stage
+    run_harness_stage "$ticket"
     run_e2e_stage ticket "$ticket"
     write_result ticket "$ticket" || exit 1
     ;;
