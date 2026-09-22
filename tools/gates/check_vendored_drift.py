@@ -73,6 +73,27 @@ def sha256(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
+# NAME_MAX on POSIX and the NTFS component limit are both 255.
+#
+# WHY THIS IS CHECKED EXPLICITLY RATHER THAN CAUGHT. POSIX surfaces an over-long component as
+# ENAMETOOLONG, which the `except OSError` below turns into a correct COULD-NOT-RUN. Windows does
+# not: `Path.is_file()` swallows it and returns False, so the entry falls through to MISSING and the
+# gate reports drift for a file it never actually looked at. Probing with `os.stat()` instead does
+# not help — Windows raises FileNotFoundError there, indistinguishable from a genuinely absent file,
+# so catching that would convert every real MISSING into a could-not-run.
+#
+# So the name is measured before the probe, and both platforms reach the same verdict.
+NAME_MAX = 255
+
+
+def _name_too_long(rel: str) -> "OSError | None":
+    """The OSError a POSIX probe would have raised, or None when the name is probeable."""
+    for part in Path(rel).parts:
+        if len(part) > NAME_MAX:
+            return OSError(36, f"path component exceeds {NAME_MAX} characters")
+    return None
+
+
 def _unprobeable(rel: str, exc: OSError) -> int:
     """A file the manifest lists but the OS refused to read (name too long, permission denied) is a
     could-not-run for that entry — never a silent pass and never a drift. Reported as CANNOT_RUN so a
@@ -171,6 +192,9 @@ def main() -> int:
 
     for rel, expected in sorted(m.get("verbatim", {}).items()):
         f = ROOT / rel
+        too_long = _name_too_long(rel)
+        if too_long is not None:
+            return _unprobeable(rel, too_long)
         try:
             present = f.is_file()
             actual = sha256(f) if present else None
@@ -200,6 +224,9 @@ def main() -> int:
     # templated entries, so the substitution check below can rely on it.
     for rel, spec in sorted(m.get("templated", {}).items()):
         f = ROOT / rel
+        too_long = _name_too_long(rel)
+        if too_long is not None:
+            return _unprobeable(rel, too_long)
         try:
             present = f.is_file()
             text = f.read_text(encoding="utf-8", errors="replace") if present else None
