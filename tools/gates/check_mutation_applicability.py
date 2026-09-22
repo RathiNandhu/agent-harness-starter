@@ -217,7 +217,29 @@ def main() -> int:
             ),
         )
 
-    found = [c for c in CONFIG_CANDIDATES if (SCAN / c).is_file()]
+    # A WORKSPACE-HOSTED CONFIG, MAPPED TO THE TARGET IT MEASURES. When one checkout hosts the
+    # harness for repositories it only references, the mutation config cannot live in the tree being
+    # scanned -- nothing is written there. It lives beside this gate instead, and `configsByTarget`
+    # in gates.config.json says which config belongs to which target, keyed by the scanned
+    # directory's name and resolved against ROOT.
+    #
+    # This is a MAP and not another entry in CONFIG_CANDIDATES on purpose. A candidate is a flat path
+    # joined to SCAN, so a `../workspace/...` entry resolves from EVERY target and would certify all
+    # of them with one config that can only mutate one of them. That is a false green arriving
+    # through the settings file -- the exact failure this gate exists to report. A map can only ever
+    # satisfy the target it names.
+    #
+    # Both ways this lookup can miss are conservative. An unmapped target falls through to the
+    # SCAN-relative probe and stays RED; so does a target whose directory was renamed out from under
+    # its mapping. Nothing here turns green because a lookup failed.
+    found = []
+    by_target = _SETTINGS.get("configsByTarget", {})
+    mapped = by_target.get(SCAN.name) if isinstance(by_target, dict) else None
+    if mapped and (ROOT / mapped).is_file():
+        found = [f"{mapped} (hosted in {ROOT.name}/, mapped to {SCAN.name})"]
+
+    if not found:
+        found = [c for c in CONFIG_CANDIDATES if (SCAN / c).is_file()]
     if not found:
         content_match = content_config_match()
         if content_match:
