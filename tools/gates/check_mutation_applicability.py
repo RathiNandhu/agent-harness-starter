@@ -48,9 +48,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import VERIFIED, VIOLATED, repo_root, report  # noqa: E402
+from harness import VERIFIED, VIOLATED, repo_root, report, scan_root  # noqa: E402
 
+# ROOT holds this gate's own settings; SCAN is the tree whose source is measured. They differ
+# only when HARNESS_SCAN_ROOT points at a repository the harness does not live in.
 ROOT = repo_root()
+SCAN = scan_root()
 
 # ── Tailor via a settings file, not by editing this script ─────────────────────────────────────────
 #
@@ -166,12 +169,12 @@ def source_files() -> list[str]:
     perturbs the code under test and asks whether a test notices.
     """
     out: set[str] = set()
-    for p in ROOT.rglob("*"):
+    for p in SCAN.rglob("*"):
         if not p.is_file() or p.is_symlink():
             continue
         if p.suffix not in SOURCE_EXTENSIONS:
             continue
-        rel = p.relative_to(ROOT)
+        rel = p.relative_to(SCAN)
         # Skip any dot-directory (.git, .github, .venv, editor state) plus the named exclusions.
         if any(part.startswith(".") for part in rel.parts[:-1]) or is_excluded(rel):
             continue
@@ -184,7 +187,7 @@ def source_files() -> list[str]:
 def content_config_match() -> str | None:
     """A build file present AND declaring its mutation plugin — see CONTENT_CONFIG_CANDIDATES."""
     for name, marker in CONTENT_CONFIG_CANDIDATES.items():
-        f = ROOT / name
+        f = SCAN / name
         if not f.is_file():
             continue
         try:
@@ -214,7 +217,7 @@ def main() -> int:
             ),
         )
 
-    found = [c for c in CONFIG_CANDIDATES if (ROOT / c).is_file()]
+    found = [c for c in CONFIG_CANDIDATES if (SCAN / c).is_file()]
     if not found:
         content_match = content_config_match()
         if content_match:
